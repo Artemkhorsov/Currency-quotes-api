@@ -1,16 +1,5 @@
 package convert
 
-import (
-	"encoding/json"
-	"errors"
-	"fmt"
-	"io"
-	"io/ioutil"
-	"net/http"
-	"net/url"
-	"os"
-)
-
 type Convert struct {
 	Result             string `json:"result"`
 	TimeLastUpdateUtc  string `json:"time_last_update_utc"`
@@ -181,34 +170,4 @@ type Convert struct {
 		ZMW float64 `json:"ZMW"`
 		ZWL float64 `json:"ZWL"`
 	} `json:"conversion_rates"`
-}
-
-func (c Convert) ConvertTheAmount(float64, fromCurrency string, toCurrency string) (float64, error) {
-	apiKey := os.Getenv("31720714369722230941a8a1")
-	if apiKey == "" {
-		return 0.0, errors.New("Не найден ")
-	}
-	baseURL := "https://v6.exchangerate-api.com/v6/31720714369722230941a8a1/latest/USD"
-	u, err := url.Parse(baseURL)
-	if err != nil {
-		return 0.0, fmt.Errorf("ошибка при отправке запроса:%v", err)
-	}
-	q := u.Query()
-	q.Set("from", fromCurrency)
-	q.Set("to", toCurrency)
-	u.RawQuery = q.Encode()
-	req, err := http.NewRequest("GET", u.String(), nil)
-	if err != nil {
-		return 0.0, err
-	}
-	req.Header.Add("x-api-key", apiKey)
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return 0.0, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		body, _ := ioutil.ReadAll(resp.Body)
-		return nil, fmt.Errorf("API вернул ошибку:%s,Status code:%d", string(body), resp.StatusCode)
-	}
 }

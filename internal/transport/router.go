@@ -2,6 +2,7 @@ package transport
 
 import (
 	"fmt"
+	"log"
 	"net/http"
 )
 
@@ -13,5 +14,5 @@ func InitRoutes(s *Server) {
 	http.HandleFunc("/convert", s.Handler.ConvertTheAmount)
 
 	fmt.Println("Сервер запущен на http://localhost:8080")
-	http.ListenAndServe(":8080", nil)
+	log.Fatal(http.ListenAndServe(":8080", nil))
 }
