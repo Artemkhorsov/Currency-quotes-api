@@ -2,20 +2,25 @@ package transport
 
 import (
 	convert "currency-quotes-api/internal/core"
+	"currency-quotes-api/internal/core/models"
 	"encoding/json"
 	"fmt"
-	"io"
 	"log"
 	"net/http"
-	"net/url"
-	"os"
 )
 
 type Handler struct {
+	service Service
 }
 
-func NewHandler() Handler {
-	return Handler{}
+type Service interface {
+	AddOrUpdateRate(rates models.Rates) error
+}
+
+func NewHandler(service Service) Handler {
+	return Handler{
+		service: service,
+	}
 }
 
 func (h Handler) AddOrUpdateRateHandler(w http.ResponseWriter, r *http.Request) {
@@ -24,15 +29,59 @@ func (h Handler) AddOrUpdateRateHandler(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	var rates Rates
-	err := json.NewDecoder(r.Body).Decode(&rates)
+	var ratesStruct models.Rates
+	err := json.NewDecoder(r.Body).Decode(&ratesStruct)
 	if err != nil {
-		log.Println("Ошибочка", err)
+		log.Println("Ошибка декодирования JSON", err)
 		http.Error(w, "Неверный формат", http.StatusBadRequest)
 
 		return
 	}
-	fmt.Println(rates.Currency, rates.Value)
+	err = h.service.AddOrUpdateRate(ratesStruct)
+
+	log.Printf("Валюта '%s' успешно добавлена", ratesStruct.Currency)
+
+	if err != nil {
+		log.Println("Ошибочка при добавлении/обновлении курса", err)
+		http.Error(w, "Не удалось добавить/обновить курс", http.StatusInternalServerError)
+	}
+
+}
+
+func (h Handler) DeleteHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodDelete {
+		http.Error(w, "Метод не поддерживается", http.StatusMethodNotAllowed)
+		return
+	}
+	var deleteRequest models.DeleteRequest
+	err := json.NewDecoder(r.Body).Decode(&deleteRequest)
+	if err != nil {
+		log.Println("Ошибка декодирования JSON", err)
+		http.Error(w, "Неверный формат JSON", http.StatusBadRequest)
+		return
+	}
+	currencyKey := deleteRequest.Currency
+
+	if _, ok := models.CurrencyNamesMap[currencyKey]; !ok {
+		msg := fmt.Sprintf("Валюта '%s' не найдена", currencyKey)
+		log.Println(msg)
+		http.Error(w, msg, http.StatusBadRequest)
+		return
+	}
+	delete(models.CurrencyNamesMap, currencyKey)
+
+	log.Printf("Валюта '%s' успешно удалена", currencyKey)
+
+	w.WriteHeader(http.StatusOK)
+	w.Header().Set("Content-Type", "application/json")
+	response := map[string]string{"message": "Удаление выполнено успешно!"}
+	jsonResponse, err := json.Marshal(response)
+	if err != nil {
+		log.Println("Ошибка маршалинга JSON", err)
+		http.Error(w, "Внутренняя ошибка сервера", http.StatusInternalServerError)
+		return
+	}
+	w.Write(jsonResponse)
 }
 
 func (h Handler) GetList(w http.ResponseWriter, r *http.Request) {
@@ -40,73 +89,47 @@ func (h Handler) GetList(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "метод не поддерживается", http.StatusMethodNotAllowed)
 		return
 	}
-	js, err := json.Marshal(GetCurrency)
-	if err != nil {
-		log.Println(err)
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-	js = append(js, '\n')
-	w.Header().Set("Content-Type", "application/json")
-	err = json.NewEncoder(w).Encode(GetCurrency)
+	err := json.NewEncoder(w).Encode(models.CurrencyNamesMap)
 	if err != nil {
 		log.Println(err)
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 }
+
 func (h Handler) ConvertTheAmount(w http.ResponseWriter, r *http.Request) {
-
-	baseURL := "https://v6.exchangerate-api.com/v6/31720714369722230941a8a1/latest/USD"
-
-	parms := url.Values{}
-	parms.Add("from", "USD")
-	parms.Add("to", "EUR")
-	parms.Add("amount", "100")
-
-	fullURL := baseURL + "?" + parms.Encode()
-	resp, err := http.Get(fullURL)
-	if err != nil {
-		fmt.Println("Ошибка при выполнение запроса", err.Error())
-		os.Exit(1)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		log.Printf("Ошибка: Неверный статус код:%v\n", resp.StatusCode)
-		http.Error(w, fmt.Sprintf("Неверный статус код : %v", resp.StatusCode), http.StatusBadRequest)
-
+	if r.Method != http.MethodPost {
+		http.Error(w, "метод не поддерживается", http.StatusMethodNotAllowed)
 		return
 	}
-
-	body, err := io.ReadAll(resp.Body)
+	var req models.Request
+	err := json.NewDecoder(r.Body).Decode(&req)
 	if err != nil {
-		log.Println("Ошибка при распаковки json", err.Error())
-		http.Error(w, "ошибка при чтении ответа", http.StatusInternalServerError)
+		log.Println("Ошибка декодирования JSON ", err)
+		http.Error(w, "Ошибка конвертации ", http.StatusBadRequest)
 		return
 	}
-	fmt.Println("тело ответа", string(body))
+	amount := req.Amount
+	fromCurrency := req.FromCurrency
+	toCurrency := req.ToCurrency
 
-	var converts convert.Convert
-	err = json.Unmarshal(body, &converts)
+	convertTheAmount, err := convert.ConvertsTheRate(amount, fromCurrency, toCurrency)
 	if err != nil {
-		log.Println("Ошибка при распаковки json", err)
-		http.Error(w, "ошибка при чтении ответа", http.StatusBadRequest)
-
+		log.Printf("ошибка конвертации:%v", err)
+		http.Error(w, "ошибка конвертации", http.StatusInternalServerError)
 		return
 	}
-	jsonConvert, err := json.Marshal(converts)
-	if err != nil {
-		log.Println(err)
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-
-		return
+	resp := models.Response{
+		ConvertTheAmount: convertTheAmount,
 	}
-	w.Header().Set("Content-Type", "application/json")
+
 	w.WriteHeader(http.StatusOK)
-
-	_, err = w.Write(jsonConvert)
+	w.Header().Set("Content-Type", "application/json")
+	err = json.NewEncoder(w).Encode(resp)
 	if err != nil {
-		log.Println("Ошибка при записи ответа", err)
+		log.Println("Ошибка маршалинга JSON:", err)
+		http.Error(w, "Ошибка маршалинга JSON", http.StatusInternalServerError)
+		return
+
 	}
 }

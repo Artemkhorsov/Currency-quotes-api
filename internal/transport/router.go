@@ -7,9 +7,11 @@ import (
 )
 
 func InitRoutes(s *Server) {
-	http.HandleFunc("/rates", s.Handler.AddOrUpdateRateHandler)
+	http.HandleFunc("/rate", s.Handler.AddOrUpdateRateHandler)
 
-	http.HandleFunc("/rate", s.Handler.GetList)
+	http.HandleFunc("/delete", s.Handler.DeleteHandler)
+
+	http.HandleFunc("/rates", s.Handler.GetList)
 
 	http.HandleFunc("/convert", s.Handler.ConvertTheAmount)
 

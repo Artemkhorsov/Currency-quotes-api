@@ -1,11 +1,17 @@
 package convert
 
+import (
+	"encoding/json"
+	"fmt"
+	"io"
+	"log"
+	"net/http"
+	"net/url"
+)
+
 type Convert struct {
-	Result             string `json:"result"`
-	TimeLastUpdateUtc  string `json:"time_last_update_utc"`
-	TimeNextUpdateUnix int    `json:"time_next_update_unix"`
-	TimeNextUpdateUtc  string `json:"time_next_update_utc"`
-	ConversionRates    struct {
+	Result          string `json:"result"`
+	ConversionRates struct {
 		USD int     `json:"USD"`
 		AED float64 `json:"AED"`
 		AFN float64 `json:"AFN"`
@@ -170,4 +176,63 @@ type Convert struct {
 		ZMW float64 `json:"ZMW"`
 		ZWL float64 `json:"ZWL"`
 	} `json:"conversion_rates"`
+}
+
+type ExchangeRates struct {
+	Success   bool               `json:"success"`
+	Timestamp int64              `json:"timestamp"`
+	Base      string             `json:"base"`
+	Date      string             `json:"date"`
+	Rates     map[string]float64 `json:"rates"`
+}
+
+func GetExchangeRates(baseCurrency string) (ExchangeRates, error) {
+
+	apiKey := "508718c296c549b08f560401fec0a4cf"
+	if apiKey == "" {
+		return ExchangeRates{}, fmt.Errorf("FIXER_API_KEY не установлен")
+	}
+
+	baseURL := fmt.Sprintf("https://app.exchangerate-api.com/v6/%s/latest/%s", apiKey, baseCurrency)
+
+	params := url.Values{}
+
+	apiURl := baseURL + "?" + params.Encode()
+
+	resp, err := http.Get(apiURl)
+	if err != nil {
+		return ExchangeRates{}, fmt.Errorf("ошибка при выполнении Get_запроса:%w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+
+		return ExchangeRates{}, fmt.Errorf("ошибка при чтении ответа:%w ", err)
+	}
+	log.Println("тело ответа", string(body))
+
+	var exchangeRates ExchangeRates
+	err = json.Unmarshal(body, &exchangeRates)
+	if err != nil {
+		return ExchangeRates{}, fmt.Errorf("ошибка при декодировании JSON ответа %w", err)
+	}
+	return exchangeRates, nil
+}
+
+func ConvertsTheRate(amount float64, fromCurrency string, toCurrency string) (float64, error) {
+	exChangeRates, err := GetExchangeRates(fromCurrency)
+	if err != nil {
+		return 0, fmt.Errorf("ошибка при получени курсов обмена:%w", err)
+	}
+
+	if !exChangeRates.Success {
+		return 0, fmt.Errorf("не удалось получить курс валюты: %v", exChangeRates)
+	}
+	rateTo, ok := exChangeRates.Rates[toCurrency]
+	if !ok {
+		return 0, fmt.Errorf("валюта '%s' не найдена", toCurrency)
+	}
+	convertedAmount := amount * rateTo
+	return convertedAmount, nil
 }
