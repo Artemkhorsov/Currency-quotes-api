@@ -1,4 +1,4 @@
-package transport
+package models
 
 type Currency struct {
 	Name   string  `json:"name"`
